@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { motion, AnimatePresence, Variants } from "framer-motion";
+import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle,
   XCircle,
@@ -67,12 +67,12 @@ const containerVariants = {
   },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 80 } },
 };
 
-const buttonVariants = {
+const buttonVariants: Variants = {
   hover: { scale: 1.06, boxShadow: "0 2px 8px 0 rgba(99,102,241,0.12)" },
   tap: { scale: 0.97 },
 };
@@ -101,6 +101,67 @@ export function FormLayout() {
   const [showLocationCard, setShowLocationCard] = useState(false);
   const [showMap, setShowMap] = useState(false);
 
+  const addToast = useCallback((type: Toast["type"], message: string) => {
+    const id = Date.now().toString();
+    const newToast: Toast = { id, type, message };
+    setToasts((prev) => [...prev, newToast]);
+
+    // Auto remove toast after 5 seconds
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 5000);
+  }, []);
+
+  const syncOfflineSubmissions = useCallback(async () => {
+    const pendingSubmissions = offlineSubmissions.filter(
+      (s) => s.status === "pending"
+    );
+
+    if (pendingSubmissions.length === 0) return;
+
+    addToast(
+      "info",
+      `Syncing ${pendingSubmissions.length} offline submission(s)...`
+    );
+
+    for (const submission of pendingSubmissions) {
+      try {
+        // Update status to syncing
+        const updatedSubmissions = offlineSubmissions.map((s) =>
+          s.id === submission.id ? { ...s, status: "syncing" as const } : s
+        );
+        setOfflineSubmissions(updatedSubmissions);
+
+        // Simulate API call
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Update status to synced
+        const finalSubmissions = offlineSubmissions.map((s) =>
+          s.id === submission.id ? { ...s, status: "synced" as const } : s
+        );
+        setOfflineSubmissions(finalSubmissions);
+
+        addToast("success", `Offline submission synced successfully!`);
+      } catch {
+        // Update status to failed
+        const failedSubmissions = offlineSubmissions.map((s) =>
+          s.id === submission.id ? { ...s, status: "failed" as const } : s
+        );
+        setOfflineSubmissions(failedSubmissions);
+
+        addToast("error", `Failed to sync offline submission`);
+      }
+    }
+
+    // Remove synced submissions after a delay
+    setTimeout(() => {
+      const remainingSubmissions = offlineSubmissions.filter(
+        (s) => s.status !== "synced"
+      );
+      setOfflineSubmissions(remainingSubmissions);
+    }, 3000);
+  }, [offlineSubmissions, addToast]);
+
   // Check online status and load offline submissions
   useEffect(() => {
     const updateOnlineStatus = () => {
@@ -126,18 +187,7 @@ export function FormLayout() {
         navigator.geolocation.clearWatch(watchId);
       }
     };
-  }, []);
-
-  const addToast = (type: Toast["type"], message: string) => {
-    const id = Date.now().toString();
-    const newToast: Toast = { id, type, message };
-    setToasts((prev) => [...prev, newToast]);
-
-    // Auto remove toast after 5 seconds
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 5000);
-  };
+  }, [offlineSubmissions.length, syncOfflineSubmissions, watchId]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -185,56 +235,6 @@ export function FormLayout() {
     setOfflineSubmissions(updatedSubmissions);
 
     return submission.id;
-  };
-
-  const syncOfflineSubmissions = async () => {
-    const pendingSubmissions = offlineSubmissions.filter(
-      (s) => s.status === "pending"
-    );
-
-    if (pendingSubmissions.length === 0) return;
-
-    addToast(
-      "info",
-      `Syncing ${pendingSubmissions.length} offline submission(s)...`
-    );
-
-    for (const submission of pendingSubmissions) {
-      try {
-        // Update status to syncing
-        const updatedSubmissions = offlineSubmissions.map((s) =>
-          s.id === submission.id ? { ...s, status: "syncing" as const } : s
-        );
-        setOfflineSubmissions(updatedSubmissions);
-
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Update status to synced
-        const finalSubmissions = offlineSubmissions.map((s) =>
-          s.id === submission.id ? { ...s, status: "synced" as const } : s
-        );
-        setOfflineSubmissions(finalSubmissions);
-
-        addToast("success", `Offline submission synced successfully!`);
-      } catch (error) {
-        // Update status to failed
-        const failedSubmissions = offlineSubmissions.map((s) =>
-          s.id === submission.id ? { ...s, status: "failed" as const } : s
-        );
-        setOfflineSubmissions(failedSubmissions);
-
-        addToast("error", `Failed to sync offline submission`);
-      }
-    }
-
-    // Remove synced submissions after a delay
-    setTimeout(() => {
-      const remainingSubmissions = offlineSubmissions.filter(
-        (s) => s.status !== "synced"
-      );
-      setOfflineSubmissions(remainingSubmissions);
-    }, 3000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -299,7 +299,7 @@ export function FormLayout() {
       } else {
         addToast("error", "Submission failed. Please try again.");
       }
-    } catch (error) {
+    } catch {
       if (!isOnline) {
         addToast("offline", "No internet connection. Form saved offline.");
       } else {
@@ -897,7 +897,7 @@ export function FormLayout() {
                             fill="none"
                           >
                             <path
-                              d="M17.472 6.382c-1.03-1.23-2.47-1.38-3.01-1.38-.13 0-.26.01-.38.02-.37.04-.73.13-1.08.26-.36.13-.7.3-1.03.5-.32.2-.62.43-.9.7-.27.27-.52.56-.75.87-.23.31-.43.65-.6 1.01-.17.36-.31.74-.41 1.13-.1.39-.16.8-.18 1.21-.02.41.01.82.09 1.23.08.41.21.81.39 1.19.18.38.41.74.68 1.08.27.34.58.65.92.92.34.27.7.5 1.08.68.38.18.78.31 1.19.39.41.08.82.11 1.23.09.41-.02.82-.08 1.21-.18.39-.1.77-.24 1.13-.41.36-.17.7-.37 1.01-.6.31-.23.6-.48.87-.75.27-.27.5-.57.7-.9.2-.33.37-.67.5-1.03.13-.35.22-.71.26-1.08.01-.12.02-.25.02-.38 0-.54-.15-1.98-1.38-3.01z"
+                              d="M17.472 6.382c-1.03-1.23-2.47-1.38-3.01-1.38-.13 0-.26.01-.38.02-.37.04-.73.13-1.08.26-.36.13-.7.3-1.03.5-.32.2-.62.43-.90.7-.27.27-.52.56-.75.87-.23.31-.43.65-.60 1.01-.17.36-.31.74-.41 1.13-.10.39-.16.80-.18 1.21-.02.41.01.82.09 1.23.08.41.21.81.39 1.19.18.38.41.74.68 1.08.27.34.58.65.92.92.34.27.70.50 1.08.68.38.18.78.31 1.19.39.41.08.82.11 1.23.09.41-.02.82-.08 1.21-.18.39-.10.77-.24 1.13-.41.36-.17.70-.37 1.01-.60.31-.23.60-.48.87-.75.27-.27.50-.57.70-.90.20-.33.37-.67.50-1.03.13-.35.22-.71.26-1.08.01-.12.02-.25.02-.38 0-.54-.15-1.98-1.38-3.01z"
                               fill="currentColor"
                             />
                           </svg>
@@ -963,7 +963,7 @@ export function FormLayout() {
                             fill="none"
                           >
                             <path
-                              d="M17.472 6.382c-1.03-1.23-2.47-1.38-3.01-1.38-.13 0-.26.01-.38.02-.37.04-.73.13-1.08.26-.36.13-.7.3-1.03.5-.32.2-.62.43-.9.7-.27.27-.52.56-.75.87-.23.31-.43.65-.6 1.01-.17.36-.31.74-.41 1.13-.1.39-.16.8-.18 1.21-.02.41.01.82.09 1.23.08.41.21.81.39 1.19.18.38.41.74.68 1.08.27.34.58.65.92.92.34.27.7.5 1.08.68.38.18.78.31 1.19.39.41.08.82.11 1.23.09.41-.02.82-.08 1.21-.18.39-.1.77-.24 1.13-.41.36-.17.7-.37 1.01-.6.31-.23.6-.48.87-.75.27-.27.5-.57.7-.9.2-.33.37-.67.5-1.03.13-.35.22-.71.26-1.08.01-.12.02-.25.02-.38 0-.54-.15-1.98-1.38-3.01z"
+                              d="M17.472 6.382c-1.03-1.23-2.47-1.38-3.01-1.38-.13 0-.26.01-.38.02-.37.04-.73.13-1.08.26-.36.13-.7.3-1.03.5-.32.2-.62.43-.90.7-.27.27-.52.56-.75.87-.23.31-.43.65-.60 1.01-.17.36-.31.74-.41 1.13-.10.39-.16.80-.18 1.21-.02.41.01.82.09 1.23.08.41.21.81.39 1.19.18.38.41.74.68 1.08.27.34.58.65.92.92.34.27.70.50 1.08.68.38.18.78.31 1.19.39.41.08.82.11 1.23.09.41-.02.82-.08 1.21-.18.39-.10.77-.24 1.13-.41.36-.17.70-.37 1.01-.60.31-.23.60-.48.87-.75.27-.27.50-.57.70-.90.20-.33.37-.67.50-1.03.13-.35.22-.71.26-1.08.01-.12.02-.25.02-.38 0-.54-.15-1.98-1.38-3.01z"
                               fill="currentColor"
                             />
                           </svg>
